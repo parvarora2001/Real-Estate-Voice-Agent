@@ -10,6 +10,12 @@ pinned: false
 
 # 🏠 AI Real Estate Voice Agent
 
+**🔗 Live demo: [parv28-real-estate.hf.space](https://parv28-real-estate.hf.space)**
+
+> ⚠️ The demo runs on a Twilio **trial** account, which can only call **pre-verified**
+> numbers. To get a live call, your number must be verified on the account first — reach
+> out and I can verify it, or watch a recorded walkthrough.
+
 A web-to-phone AI voice agent for real estate lead qualification. A visitor fills in a
 short web form; the backend places a **real outbound phone call** and an AI agent talks
 to them, qualifies the lead, matches properties, and saves a report for a human agent.
