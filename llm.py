@@ -15,8 +15,6 @@ EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "text-embedding-004")
 
 _API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
-# A single shared client. If the key is missing we keep the module importable so the
-# app can still boot and report the misconfiguration via /health.
 client: Optional[genai.Client] = genai.Client(api_key=_API_KEY) if _API_KEY else None
 
 
