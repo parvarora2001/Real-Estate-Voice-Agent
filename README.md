@@ -1,58 +1,48 @@
-# 🏠 Real Estate Voice Agent — Local (v1)
+---
+title: Real Estate Voice Agent
+emoji: 🏠
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
 
-A fully local AI voice agent for real estate lead qualification — no cloud services, no API costs. Runs entirely on your machine using Ollama, Whisper, and Coqui TTS.
+# 🏠 AI Real Estate Voice Agent
 
-> **This is v1** — a local-first proof of concept. For the production-grade Azure deployment with outbound calling, lead scoring, Redis property matching, and retry scheduling, see [Real-Estate-Voice-Agent-Azure](https://github.com/parvarora2001/Real-Estate-Voice-Agent-Azure).
+A web-to-phone AI voice agent for real estate lead qualification. A visitor fills in a
+short web form; the backend places a **real outbound phone call** and an AI agent talks
+to them, qualifies the lead, matches properties, and saves a report for a human agent.
+
+Built to be **deployable on a free tier** and shareable with a single link — point a
+recruiter at the URL, they enter their number, and the AI calls them.
 
 ---
 
-## What It Does
-
-Handles inbound calls via Twilio. When someone calls the number:
-
-1. Twilio routes the call to this FastAPI server
-2. The caller speaks — Twilio records the audio
-3. **Whisper** (running locally) transcribes the recording
-4. **Ollama (phi3:mini)** generates a qualifying response — no OpenAI API needed
-5. **Polly.Joanna** (Twilio TTS) speaks the response back
-6. The loop repeats until the conversation ends
-
-Everything except Twilio's telephony layer runs on your machine.
-
----
-
-## Architecture
+## How It Works
 
 ```
-Caller dials Twilio number
-        ↓
-POST /voice/incoming  →  FastAPI server (local)
-        ↓
-Twilio records caller response (30s max)
-        ↓
-POST /voice/process
-  ├── Download recording (MP3) from Twilio
-  ├── Transcribe with Whisper (local, no cloud)
-  ├── Generate response with Ollama phi3:mini (local, no cloud)
-  └── Return TwiML → Twilio speaks response via Polly
-        ↓
-Loop until conversation ends
+Visitor opens the web page  (Hugging Face Spaces)
+        │  enters name + phone + what they want
+        ▼
+POST /api/start-call  ──▶  Twilio places an OUTBOUND call to the visitor
+        ▼
+Visitor's phone rings; they answer
+        ▼
+Twilio webhook /voice/outbound  →  AI greeting + question
+        ▼
+<Gather input="speech">  ── Twilio transcribes the caller's speech (built-in STT)
+        ▼
+POST /voice/process  →  Gemini generates the next question (Polly speaks it)
+        ▼
+Loop until qualified → Gemini extracts a structured lead
+                     → properties matched via Gemini embeddings
+                     → lead report written to leads/
 ```
 
----
-
-## Why Local?
-
-| Concern | This Repo | Azure Version |
-|---|---|---|
-| LLM cost | $0 — Ollama runs locally | Azure OpenAI (GPT-4) |
-| Transcription cost | $0 — Whisper runs locally | Azure Speech + Whisper fallback |
-| TTS | Twilio Polly (billed per char) | Twilio Polly |
-| Telephony | Twilio (billed per min) | Twilio (billed per min) |
-| Setup complexity | Low | High |
-| Scalability | Single machine | Azure App Service |
-
-This version is ideal for development, demos, and understanding the core pipeline before committing to cloud infrastructure.
+There is **no local ML** — no Whisper, no Torch, no TTS models. Speech-to-text is
+handled by Twilio's `<Gather>`, text-to-speech by Twilio Polly, and all intelligence by
+Google Gemini. That keeps the container small enough for free hosting.
 
 ---
 
@@ -60,12 +50,14 @@ This version is ideal for development, demos, and understanding the core pipelin
 
 | Component | Technology |
 |---|---|
-| Web Framework | FastAPI + Uvicorn |
-| Telephony | Twilio Programmable Voice |
-| LLM | Ollama — `phi3:mini` (runs locally) |
-| Speech-to-Text | OpenAI Whisper `tiny` (runs locally) |
-| Text-to-Speech | Coqui TTS — `tacotron2-DDC` (loaded, not yet wired to calls) |
-| Voice Synthesis | Twilio Polly.Joanna (used in TwiML responses) |
+| Web framework | FastAPI + Uvicorn |
+| Frontend | Single static HTML page (`static/index.html`) |
+| Telephony | Twilio Programmable Voice (outbound calls) |
+| Speech-to-Text | Twilio `<Gather input="speech">` (built-in) |
+| Text-to-Speech | Twilio Polly.Joanna |
+| LLM | Google **Gemini** (`gemini-2.5-flash`) |
+| Property search | Gemini embeddings + in-memory cosine similarity (NumPy) |
+| Hosting | Hugging Face Spaces (Docker) |
 
 ---
 
@@ -73,135 +65,85 @@ This version is ideal for development, demos, and understanding the core pipelin
 
 ```
 .
-├── main.py                  # FastAPI app — all voice logic
-├── conversation_test.py     # Test multi-turn conversation flow
-├── test_llm.py              # Test Ollama LLM responses in isolation
-├── test_tts.py              # Test Coqui TTS audio generation
-├── test_whisper.py          # Test Whisper transcription
-├── test_whisper_audio.py    # Test Whisper on a specific audio file
-├── ai_response.wav          # Sample generated TTS audio
-├── test_output.wav          # Sample Whisper test output
-└── pyproject.toml           # Dependencies
+├── main.py             # FastAPI app: web form API + Twilio voice webhooks + brain
+├── llm.py              # All Gemini calls (chat, JSON extraction, embeddings)
+├── property_manager.py # In-memory semantic property search via Gemini embeddings
+├── lead_extractor.py   # Gemini-based lead extraction + rule-based scoring
+├── models.py           # Pydantic LeadData + enums
+├── properties.json     # Demo property listings
+├── static/index.html   # Recruiter-facing web form
+├── Dockerfile          # For Hugging Face Spaces (port 7860)
+├── requirements.txt    # Runtime dependencies
+└── .env.example        # Required environment variables
 ```
-
-The test files aren't throwaway scripts — they show the component-by-component development process: LLM → TTS → Whisper → integration.
 
 ---
 
-## Prerequisites
+## Environment Variables
 
-- Python 3.11+
-- [Ollama](https://ollama.ai) installed and running
-- `phi3:mini` model pulled: `ollama pull phi3:mini`
-- Twilio account with a phone number
-- ngrok (or similar) to expose local server to Twilio
+See `.env.example`. Required:
+
+| Variable | Purpose |
+|---|---|
+| `GEMINI_API_KEY` | Google Gemini key — free at [aistudio.google.com](https://aistudio.google.com/app/apikey) |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | Twilio credentials |
+| `TWILIO_PHONE_NUMBER` | Your Twilio number, E.164 (`+1...`) |
+| `PUBLIC_BASE_URL` | The deployed app's https URL (used as the Twilio webhook) |
+
+> **Cost note:** Gemini has a free tier (with rate limits). Twilio is **not** free — a
+> *trial* account can only call numbers you've **verified** in the console; to call any
+> visitor you need a funded paid account and a purchased number.
 
 ---
 
-## Setup
-
-### 1. Install dependencies
+## Run Locally
 
 ```bash
-git clone https://github.com/parvarora2001/Real-Estate-Voice-Agent.git
-cd Real-Estate-Voice-Agent
-
-pip install uv
-uv sync
-
-# Or pip
-pip install -r requirements.txt
+uv sync                       # or: pip install -r requirements.txt
+cp .env.example .env          # then fill in your keys
+python main.py                # serves on http://localhost:7860
 ```
 
-### 2. Configure environment
-
-Create a `.env` file:
-
-```env
-TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-TWILIO_AUTH_TOKEN=your_auth_token
-TWILIO_PHONE_NUMBER=+1xxxxxxxxxx
-```
-
-### 3. Pull the LLM
+To test outbound calls locally you must expose the server publicly and set
+`PUBLIC_BASE_URL` to that URL:
 
 ```bash
-ollama pull phi3:mini
+ngrok http 7860               # set PUBLIC_BASE_URL to the https ngrok URL
 ```
 
-### 4. Run
+---
 
-```bash
-python main.py
-# Server starts at http://localhost:8000
-```
+## Deploy to Hugging Face Spaces
 
-### 5. Expose to Twilio
+1. Create a new **Space** → SDK: **Docker**.
+2. Push this repo to the Space (or connect the GitHub repo).
+3. In **Settings → Variables and secrets**, add the env vars above as **Secrets**.
+   Set `PUBLIC_BASE_URL` to your Space URL, e.g. `https://<user>-<space>.hf.space`.
+4. The Space builds from the `Dockerfile` and serves on port 7860.
+5. Open the Space URL, enter your details, and the agent calls you.
 
-```bash
-ngrok http 8000
-```
-
-Copy the `https://` URL into your Twilio phone number's Voice webhook:
-`https://your-ngrok-url.ngrok.io/voice/incoming`
+No separate Twilio webhook configuration is needed — outbound calls tell Twilio which URL
+to hit (`PUBLIC_BASE_URL/voice/outbound`).
 
 ---
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
+| Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/` | Status + model health check |
-| `GET` | `/health` | Detailed health (models, auth, active conversations) |
-| `POST` | `/voice/incoming` | Twilio inbound call webhook |
-| `POST` | `/voice/process` | Process recorded caller response |
+| `GET` | `/` | Web form |
+| `GET` | `/health` | Status (Gemini / Twilio / properties) |
+| `POST` | `/api/start-call` | Trigger an outbound call (JSON: name, phone, looking_for) |
+| `POST` | `/voice/outbound` | Twilio webhook — first turn of the call |
+| `POST` | `/voice/process` | Twilio webhook — each subsequent turn |
 
 ---
 
-## Testing Components Independently
+## Notes & Limitations
 
-Each part of the pipeline can be tested in isolation before wiring calls through it:
-
-```bash
-# Test LLM responses
-python test_llm.py
-
-# Test TTS audio generation
-python test_tts.py
-
-# Test Whisper transcription
-python test_whisper.py
-
-# Test full conversation flow (no Twilio needed)
-python conversation_test.py
-```
-
----
-
-## How It Evolved → Azure Version
-
-After validating the core pipeline locally, the architecture was extended into a production deployment:
-
-| Feature | v1 (This Repo) | v2 (Azure) |
-|---|---|---|
-| Call direction | Inbound only | Inbound + outbound |
-| LLM | Ollama phi3:mini (local) | Azure OpenAI GPT-4 |
-| Transcription | Whisper only | Azure Speech + Whisper fallback |
-| Lead storage | In-memory only | SQLite + SQLAlchemy |
-| Property matching | None | Redis-indexed listings |
-| Retry logic | None | 4-attempt scheduler with quiet hours |
-| Lead scoring | None | Hot / Warm / Cold |
-| Deployment | Local + ngrok | Docker + Azure App Service |
-
----
-
-## Known Limitations
-
-- Coqui TTS is loaded on startup but not yet wired into TwiML responses — Polly is used instead. Connecting it would eliminate the last Twilio-billed component from the AI pipeline.
-- PID-based temp filenames (`recording_{pid}.mp3`) are not safe under concurrent calls — use `tempfile.NamedTemporaryFile` for multi-caller scenarios.
-- No conversation persistence — all state is in-memory and lost on restart.
-
----
+- Conversation state is in-memory and cleared when a call ends; no database.
+- Twilio webhooks are not signature-validated yet (see batch-two hardening).
+- The demo catalog is 5 listings in `properties.json`.
 
 ## License
 

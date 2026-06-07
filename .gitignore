@@ -10,3 +10,6 @@ wheels/
 .uv/
 
 
+
+# Generated lead reports (may contain PII)
+leads/
